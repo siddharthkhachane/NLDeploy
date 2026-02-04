@@ -2,18 +2,26 @@ import os
 import json
 import asyncio
 from typing import List, Dict
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi import Request
 import httpx
+from pydantic import BaseModel
+
+from app.core.models import DeploymentSpec
+from app.core.nlp import parse_deploy_text
 
 app = FastAPI()
 
 # Setup templates and static files
 templates = Jinja2Templates(directory="app/templates")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+# Request models
+class ParseRequest(BaseModel):
+    text: str
 
 # Node configuration
 NODES = {
@@ -65,16 +73,24 @@ async def get_nodes():
     return JSONResponse(nodes)
 
 
+@app.post("/api/nlp/parse")
+async def parse_deployment_endpoint(request: ParseRequest):
+    """Parse natural language deployment description and return spec"""
+    try:
+        spec = parse_deploy_text(request.text)
+        return JSONResponse(spec.model_dump())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.get("/api/nlp/parse")
 async def parse_deployment(description: str = ""):
-    """Parse deployment description and return spec"""
-    spec = {
-        "description": description,
-        "target_version": "v2",
-        "nodes": list(NODES.keys()),
-        "strategy": "rolling"
-    }
-    return JSONResponse(spec)
+    """Parse deployment description and return spec (GET fallback)"""
+    try:
+        spec = parse_deploy_text(description)
+        return JSONResponse(spec.model_dump())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/api/generate")

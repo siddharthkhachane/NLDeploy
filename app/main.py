@@ -159,6 +159,12 @@ async def execute_command(command_spec: CommandSpec, store: DeploymentStore) -> 
         store.running = True
         store.logs = []
         
+        # Get the appropriate ansible command
+        from app.core.security import get_ansible_command
+        ansible_cmd = get_ansible_command()
+        if not ansible_cmd:
+            raise RuntimeError("ansible-playbook not found in PATH or WSL")
+        
         # Build target filter for Ansible
         target_filter = ",".join(command_spec.target_nodes)
         
@@ -166,12 +172,12 @@ async def execute_command(command_spec: CommandSpec, store: DeploymentStore) -> 
         playbook = f"ansible/{command_type}.yml"
         
         store.logs.append(f"Executing {command_type} on {', '.join(command_spec.target_nodes)}")
-        store.logs.append(f"Running: ansible-playbook {playbook} -i ansible/inventory.ini -l {target_filter}")
+        store.logs.append(f"Running: {ansible_cmd} {playbook} -i ansible/inventory.ini -l {target_filter}")
         
         # Run Ansible playbook
         process = subprocess.Popen(
             [
-                "ansible-playbook",
+                ansible_cmd,
                 playbook,
                 "-i", "ansible/inventory.ini",
                 "-l", target_filter,

@@ -6,12 +6,45 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def get_ansible_command() -> str:
+    """
+    Get the ansible-playbook command that works on this system.
+    
+    Returns:
+        "ansible-playbook" if available in PATH
+        "wsl ansible-playbook" if only available in WSL
+        None if not found
+    """
+    # Try Windows PATH first
+    if _check_command_exists("ansible-playbook"):
+        return "ansible-playbook"
+    
+    # Try WSL
+    if _check_command_in_wsl("ansible-playbook"):
+        return "wsl ansible-playbook"
+    
+    return None
+
+
+def _check_command_in_wsl(cmd: str) -> bool:
+    """Check if command exists in WSL"""
+    try:
+        result = subprocess.run(
+            ["wsl", "which", cmd],
+            capture_output=True,
+            timeout=2
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
 def runner_available() -> bool:
     """
     Check if deployment runner is available.
     
     Verifies:
-    - ansible-playbook command exists
+    - ansible-playbook command exists (Windows or WSL)
     - ansible/deploy.yml exists
     - ansible/inventory.ini exists
     
@@ -27,15 +60,13 @@ def runner_available() -> bool:
         return False
     
     # Check for ansible-playbook command
-    has_ansible = _check_command_exists("ansible-playbook")
+    ansible_cmd = get_ansible_command()
     
-    if not has_ansible:
-        logger.warning("ansible-playbook not found in PATH")
-        # On Windows, Ansible might be in WSL or requires special setup
-        # Log a helpful message but still return False
-        logger.info("Windows detected - Ansible may need WSL setup. See README for setup instructions.")
+    if not ansible_cmd:
+        logger.warning("ansible-playbook not found in PATH or WSL")
+        logger.info("Install Ansible: pip install ansible (Windows) or wsl pip install ansible")
     
-    return has_ansible
+    return ansible_cmd is not None
 
 
 def _check_command_exists(cmd: str) -> bool:

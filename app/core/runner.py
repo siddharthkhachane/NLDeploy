@@ -2,10 +2,14 @@ import asyncio
 import subprocess
 from collections import Counter
 from typing import Optional
+import logging
 
 from app.core.models import DeploymentSpec
 from app.core.store import DeploymentStore
 from app.core.nodes import fetch_versions
+from app.core.security import get_ansible_command
+
+logger = logging.getLogger(__name__)
 
 
 async def start_deploy(spec: DeploymentSpec, store: DeploymentStore):
@@ -22,6 +26,11 @@ async def start_deploy(spec: DeploymentSpec, store: DeploymentStore):
     store.logs.append(f"Starting deployment to target_version={spec.target_version}")
     
     try:
+        # Get the appropriate ansible command
+        ansible_cmd = get_ansible_command()
+        if not ansible_cmd:
+            raise RuntimeError("ansible-playbook not found in PATH or WSL")
+        
         # Fetch current versions and determine rollback version
         store.logs.append("Fetching current node versions...")
         versions = await fetch_versions()
@@ -39,7 +48,7 @@ async def start_deploy(spec: DeploymentSpec, store: DeploymentStore):
         
         # Run ansible playbook
         cmd = [
-            "ansible-playbook",
+            ansible_cmd,
             "-i", "ansible/inventory.ini",
             "ansible/deploy.yml",
             f"-e", f"target_version={spec.target_version}"

@@ -1,4 +1,5 @@
 let currentSpec = {};
+let currentSpecType = null;
 let isDeploying = false;
 
 async function pollNodes() {
@@ -36,24 +37,47 @@ async function generatePlan() {
     const desc = document.getElementById('deploymentDesc').value;
     
     if (!desc.trim()) {
-        alert('Please describe your deployment');
+        alert('Please describe your deployment or command');
         return;
     }
     
     try {
-        const parseResp = await fetch(`/api/nlp/parse?description=${encodeURIComponent(desc)}`);
+        const parseResp = await fetch('/api/nlp/parse', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: desc })
+        });
+        
         const spec = await parseResp.json();
         currentSpec = spec;
+        currentSpecType = spec.spec_type || 'deployment';
         
+        // Display the parsed spec
         document.getElementById('specJson').textContent = JSON.stringify(spec, null, 2);
         
-        const genResp = await fetch(`/api/generate?spec=${encodeURIComponent(JSON.stringify(spec))}`);
-        const plan = await genResp.json();
+        // If it's a deployment, generate artifacts
+        if (currentSpecType === 'deployment') {
+            const genResp = await fetch(`/api/generate?spec=${encodeURIComponent(JSON.stringify(spec))}`);
+            const plan = await genResp.json();
+            
+            const snippets = plan.snippets || [];
+            document.getElementById('commandOutput').textContent = snippets.join('\n');
+        } else if (currentSpecType === 'command') {
+            // For commands, show what will be executed
+            document.getElementById('commandOutput').textContent = 
+                `Will execute: ${spec.command_type}\n` +
+                `Target nodes: ${spec.target_nodes.join(', ')}`;
+        }
         
-        const snippets = plan.snippets || [];
-        document.getElementById('commandOutput').textContent = snippets.join('\n');
+        // Update button text based on spec type
+        const deployBtn = document.getElementById('deployBtn');
+        if (currentSpecType === 'command') {
+            deployBtn.textContent = `Execute ${spec.command_type.charAt(0).toUpperCase() + spec.command_type.slice(1)}`;
+        } else {
+            deployBtn.textContent = 'Deploy';
+        }
         
-        document.getElementById('deployBtn').disabled = false;
+        deployBtn.disabled = false;
         
         addLog('Plan generated successfully', 'info');
     } catch (error) {
@@ -63,13 +87,23 @@ async function generatePlan() {
 }
 
 async function startDeploy() {
-    if (!currentSpec || !currentSpec.target_version) {
+    if (!currentSpec) {
+        alert('Generate a plan first');
+        return;
+    }
+    
+    if (currentSpecType === 'deployment' && !currentSpec.target_version) {
+        alert('Generate a plan first');
+        return;
+    }
+    
+    if (currentSpecType === 'command' && !currentSpec.command_type) {
         alert('Generate a plan first');
         return;
     }
     
     if (isDeploying) {
-        alert('Deployment already in progress');
+        alert('Operation already in progress');
         return;
     }
     
@@ -79,15 +113,29 @@ async function startDeploy() {
     hideErrorBanner();
     
     try {
-        const response = await fetch('/api/deploy/spec', {
+        let response;
+        let apiEndpoint;
+        let bodyData;
+        
+        if (currentSpecType === 'deployment') {
+            apiEndpoint = '/api/deploy/spec';
+            bodyData = { spec: currentSpec };
+        } else if (currentSpecType === 'command') {
+            apiEndpoint = '/api/command/execute';
+            bodyData = { spec: currentSpec };
+        } else {
+            throw new Error('Unknown spec type');
+        }
+        
+        response = await fetch(apiEndpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(currentSpec)
+            body: JSON.stringify(bodyData)
         });
         
         const data = await response.json();
         
-        if (response.status !== 200 && data.error === 'NO_RUNNER') {
+        if (response.status === 409 && data.error === 'NO_RUNNER') {
             showErrorBanner('No deployment runner available. Please ensure nodes are running.');
             addLog('ERROR: No healthy nodes available', 'error');
             isDeploying = false;
@@ -96,8 +144,22 @@ async function startDeploy() {
         }
         
         if (!response.ok) {
-            addLog(`Error: ${data.message || 'Deployment failed'}`, 'error');
+            addLog(`Error: ${data.message || 'Operation failed'}`, 'error');
             isDeploying = false;
+            document.getElementById('deployBtn').disabled = false;
+            return;
+        }
+        
+        addLog(`${currentSpecType === 'command' ? 'Command' : 'Deployment'} started`, 'info');
+        
+        pollDeploymentStatus();
+        
+    } catch (error) {
+        addLog(`Error starting operation: ${error.message}`, 'error');
+        isDeploying = false;
+        document.getElementById('deployBtn').disabled = false;
+    }
+}
             document.getElementById('deployBtn').disabled = false;
             return;
         }

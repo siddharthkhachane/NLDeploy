@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, field_validator
-from typing import Literal
+from typing import Literal, Optional, Union
 
 
 class DeploymentSpec(BaseModel):
@@ -23,4 +23,21 @@ class DeploymentSpec(BaseModel):
     def target_version_required(cls, v):
         if not v:
             raise ValueError("target_version is required")
+        return v
+
+
+class CommandSpec(BaseModel):
+    """Command execution specification (for non-deployment ops)"""
+    command_type: Literal["stop", "restart", "scale"] = Field(..., description="Type of command")
+    target_nodes: list[str] = Field(default_factory=lambda: ["node1", "node2", "node3"], description="Target nodes")
+    
+    @field_validator("target_nodes")
+    @classmethod
+    def target_nodes_valid(cls, v):
+        if not v:
+            raise ValueError("target_nodes cannot be empty")
+        valid_nodes = {"node1", "node2", "node3"}
+        for node in v:
+            if node not in valid_nodes:
+                raise ValueError(f"Invalid node: {node}. Must be one of {valid_nodes}")
         return v

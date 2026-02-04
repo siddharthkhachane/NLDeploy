@@ -1,43 +1,131 @@
 import re
 import os
 import logging
-from typing import Optional
-from app.core.models import DeploymentSpec
+from typing import Optional, Union
+from app.core.models import DeploymentSpec, CommandSpec
 
 logger = logging.getLogger(__name__)
 
 
-def parse_deploy_text(text: str) -> DeploymentSpec:
+def parse_deploy_text(text: str) -> Union[DeploymentSpec, CommandSpec]:
     """
-    Parse natural language deployment description.
+    Parse natural language deployment or command description.
     
+    Detects if text is a command (stop, restart, scale) or deployment (version-based).
     Uses OpenAI ChatGPT API if OPENAI_API_KEY is set,
     otherwise falls back to regex parsing.
     
     Args:
-        text: Natural language deployment description
+        text: Natural language deployment/command description
         
     Returns:
-        DeploymentSpec with extracted fields
+        DeploymentSpec or CommandSpec with extracted fields
         
     Raises:
-        ValueError: If parsing fails or no version found
+        ValueError: If parsing fails
     """
     if not text or not text.strip():
-        raise ValueError("Deployment description cannot be empty")
+        raise ValueError("Deployment/command description cannot be empty")
     
-    # Try ChatGPT first if API key available
-    api_key = os.getenv("OPENAI_API_KEY")
-    if api_key:
-        try:
-            spec = parse_with_chatgpt(text, api_key)
-            logger.info(f"Parsed with ChatGPT: {spec.target_version}")
-            return spec
-        except Exception as e:
-            logger.warning(f"ChatGPT parsing failed: {str(e)}, falling back to regex")
+    # Check if this is a command (stop, restart, scale) or deployment (version)
+    command_type = detect_command_type(text)
     
-    # Fallback to regex parsing
-    return parse_with_regex(text)
+    if command_type:
+        # Parse as command
+        logger.info(f"Detected command type: {command_type}")
+        return parse_command_text(text, command_type)
+    else:
+        # Parse as deployment (version-based)
+        api_key = os.getenv("OPENAI_API_KEY")
+        if api_key:
+            try:
+                spec = parse_with_chatgpt(text, api_key)
+                logger.info(f"Parsed deployment with ChatGPT: {spec.target_version}")
+                return spec
+            except Exception as e:
+                logger.warning(f"ChatGPT parsing failed: {str(e)}, falling back to regex")
+        
+        # Fallback to regex parsing
+        return parse_with_regex(text)
+
+
+def detect_command_type(text: str) -> Optional[str]:
+    """
+    Detect if text contains a command keyword (stop, restart, scale).
+    
+    Args:
+        text: Text to analyze
+        
+    Returns:
+        Command type string or None if no command detected
+    """
+    text_lower = text.lower()
+    
+    # Command keywords
+    if re.search(r'\b(stop|shutdown|halt|terminate)\b', text_lower):
+        return "stop"
+    elif re.search(r'\b(restart|reboot|reload)\b', text_lower):
+        return "restart"
+    elif re.search(r'\b(scale|scale\s+up|scale\s+down)\b', text_lower):
+        return "scale"
+    
+    return None
+
+
+def extract_target_nodes(text: str) -> list[str]:
+    """
+    Extract target node names from text.
+    
+    Looks for node1, node2, node3 mentions.
+    If no specific nodes mentioned, returns all nodes.
+    
+    Args:
+        text: Text to search
+        
+    Returns:
+        List of target node names
+    """
+    text_lower = text.lower()
+    nodes = []
+    
+    if re.search(r'node\s*1|node1', text_lower):
+        nodes.append("node1")
+    if re.search(r'node\s*2|node2', text_lower):
+        nodes.append("node2")
+    if re.search(r'node\s*3|node3', text_lower):
+        nodes.append("node3")
+    
+    # If no specific nodes, target all
+    if not nodes:
+        nodes = ["node1", "node2", "node3"]
+    
+    return nodes
+
+
+def parse_command_text(text: str, command_type: str) -> CommandSpec:
+    """
+    Parse command specification from text.
+    
+    Args:
+        text: Command description
+        command_type: Type of command (stop, restart, scale)
+        
+    Returns:
+        CommandSpec with command_type and target_nodes
+        
+    Raises:
+        ValueError: If parsing fails
+    """
+    target_nodes = extract_target_nodes(text)
+    
+    if not target_nodes:
+        target_nodes = ["node1", "node2", "node3"]
+    
+    return CommandSpec(
+        command_type=command_type,
+        target_nodes=target_nodes
+    )
+
 
 
 def parse_with_chatgpt(text: str, api_key: str) -> DeploymentSpec:

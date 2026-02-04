@@ -1,7 +1,7 @@
 import os
 import json
 import asyncio
-from typing import List, Dict
+from typing import List, Dict, Union
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -9,8 +9,9 @@ from fastapi.templating import Jinja2Templates
 from fastapi import Request
 import httpx
 from pydantic import BaseModel
+import subprocess
 
-from app.core.models import DeploymentSpec
+from app.core.models import DeploymentSpec, CommandSpec
 from app.core.nlp import parse_deploy_text
 from app.core.generate import generate_artifacts
 from app.core.security import runner_available, validate_version_string
@@ -67,10 +68,18 @@ async def get_nodes():
 
 @app.post("/api/nlp/parse")
 async def parse_deployment_endpoint(request: ParseRequest):
-    """Parse natural language deployment description and return spec"""
+    """Parse natural language deployment or command description"""
     try:
         spec = parse_deploy_text(request.text)
-        return JSONResponse(spec.model_dump())
+        result = spec.model_dump()
+        
+        # Add spec_type for frontend handling
+        if isinstance(spec, DeploymentSpec):
+            result["spec_type"] = "deployment"
+        elif isinstance(spec, CommandSpec):
+            result["spec_type"] = "command"
+        
+        return JSONResponse(result)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -132,6 +141,103 @@ async def deploy_with_spec(background_tasks: BackgroundTasks, request: DeploySpe
         "run_id": store.run_id,
         "message": f"Deployment started with target_version={spec.target_version}"
     })
+
+
+class CommandSpecRequest(BaseModel):
+    spec: CommandSpec
+
+
+async def execute_command(command_spec: CommandSpec, store: DeploymentStore) -> None:
+    """
+    Execute a command on target nodes.
+    
+    Args:
+        command_spec: Command specification
+        store: Deployment store for logging
+    """
+    try:
+        store.running = True
+        store.logs = []
+        
+        # Build target filter for Ansible
+        target_filter = ",".join(command_spec.target_nodes)
+        
+        command_type = command_spec.command_type
+        playbook = f"ansible/{command_type}.yml"
+        
+        store.logs.append(f"Executing {command_type} on {', '.join(command_spec.target_nodes)}")
+        store.logs.append(f"Running: ansible-playbook {playbook} -i ansible/inventory.ini -l {target_filter}")
+        
+        # Run Ansible playbook
+        process = subprocess.Popen(
+            [
+                "ansible-playbook",
+                playbook,
+                "-i", "ansible/inventory.ini",
+                "-l", target_filter,
+                "-e", f"target_nodes={','.join(command_spec.target_nodes)}"
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True
+        )
+        
+        # Stream output
+        for line in process.stdout:
+            line = line.rstrip('\n')
+            if line:
+                store.logs.append(line)
+        
+        process.wait()
+        
+        if process.returncode == 0:
+            store.result = "success"
+            store.logs.append(f"\n✓ {command_type.capitalize()} command completed successfully")
+        else:
+            store.result = "failed"
+            store.error = f"Command exited with code {process.returncode}"
+            store.logs.append(f"\n✗ {command_type.capitalize()} command failed")
+        
+    except Exception as e:
+        store.result = "failed"
+        store.error = str(e)
+        store.logs.append(f"\n✗ Error executing command: {str(e)}")
+    finally:
+        store.running = False
+
+
+@app.post("/api/command/execute")
+async def execute_command_endpoint(background_tasks: BackgroundTasks, request: CommandSpecRequest):
+    """
+    Execute a command (stop, restart, etc.) on target nodes.
+    
+    Returns 409 with NO_RUNNER error if runner not available.
+    """
+    # Check runner availability
+    if not runner_available():
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "NO_RUNNER",
+                "message": "No deployment runner linked."
+            }
+        )
+    
+    # Reset and initialize store
+    reset_store()
+    store = get_store()
+    
+    # Start command execution in background
+    background_tasks.add_task(execute_command, request.spec, store)
+    
+    return JSONResponse({
+        "status": "started",
+        "run_id": store.run_id,
+        "command_type": request.spec.command_type,
+        "target_nodes": request.spec.target_nodes,
+        "message": f"Command '{request.spec.command_type}' started on {', '.join(request.spec.target_nodes)}"
+    })
+
 
 
 @app.get("/api/deploy/status")

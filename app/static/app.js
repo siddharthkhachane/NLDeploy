@@ -160,20 +160,6 @@ async function startDeploy() {
         document.getElementById('deployBtn').disabled = false;
     }
 }
-            document.getElementById('deployBtn').disabled = false;
-            return;
-        }
-        
-        addLog('Deployment started', 'info');
-        
-        pollDeploymentStatus();
-        
-    } catch (error) {
-        addLog(`Error starting deployment: ${error.message}`, 'error');
-        isDeploying = false;
-        document.getElementById('deployBtn').disabled = false;
-    }
-}
 
 async function pollDeploymentStatus() {
     try {

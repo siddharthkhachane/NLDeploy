@@ -12,6 +12,11 @@ from pydantic import BaseModel
 
 from app.core.models import DeploymentSpec
 from app.core.nlp import parse_deploy_text
+from app.core.generate import generate_artifacts
+from app.core.security import runner_available, validate_version_string
+from app.core.store import get_store, set_store, DeploymentStore, reset_store
+from app.core.runner import start_deploy
+from app.core.nodes import NODES
 
 app = FastAPI()
 
@@ -22,22 +27,9 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 # Request models
 class ParseRequest(BaseModel):
     text: str
-
-# Node configuration
-NODES = {
-    "node1": {"port": 18081, "service_name": "node1"},
-    "node2": {"port": 18082, "service_name": "node2"},
-    "node3": {"port": 18083, "service_name": "node3"},
-}
-
-# Deploy status tracking
-deploy_status = {
-    "running": False,
-    "status": "idle",
-    "current_node": None,
-    "logs": [],
-    "error": None
-}
+    
+class DeploySpecRequest(BaseModel):
+    spec: DeploymentSpec
 
 
 @app.get("/")
@@ -95,69 +87,70 @@ async def parse_deployment(description: str = ""):
 
 @app.get("/api/generate")
 async def generate_plan(spec: str = "{}"):
-    """Generate deployment plan from spec"""
+    """Generate deployment plan from spec (always available, no runner needed)"""
     try:
         spec_json = json.loads(spec)
-    except:
-        spec_json = {"target_version": "v2"}
+        spec_obj = DeploymentSpec(**spec_json)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
     
-    target_version = spec_json.get("target_version", "v2")
-    
-    command = f"ansible-playbook -i ansible/inventory.ini ansible/deploy.yml -e target_version={target_version}"
-    
-    return JSONResponse({
-        "command": command,
-        "snippets": [
-            f"# Deploy to all nodes with version {target_version}",
-            command,
-            "",
-            f"# Rollback command (if needed):",
-            f"ansible-playbook -i ansible/inventory.ini ansible/rollback.yml -e rollback_version=v1"
-        ]
-    })
+    artifacts = generate_artifacts(spec_obj)
+    return JSONResponse(artifacts)
 
 
 @app.post("/api/deploy/spec")
-async def deploy_spec(background_tasks: BackgroundTasks, spec: str = "{}"):
-    """Start deployment with the given spec"""
-    global deploy_status
+async def deploy_with_spec(background_tasks: BackgroundTasks, request: DeploySpecRequest):
+    """
+    Start deployment with spec.
     
-    if deploy_status["running"]:
-        return JSONResponse({"error": "Deployment already running"}, status_code=409)
+    Returns 409 with NO_RUNNER error if runner not available.
+    """
+    # Check runner availability
+    if not runner_available():
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "NO_RUNNER",
+                "message": "No deployment runner linked. Generate-only mode is available."
+            }
+        )
     
-    try:
-        spec_json = json.loads(spec)
-    except:
-        spec_json = {"target_version": "v2"}
+    # Validate version string
+    spec = request.spec
+    if not validate_version_string(spec.target_version):
+        raise HTTPException(status_code=400, detail="Invalid version format")
     
-    target_version = spec_json.get("target_version", "v2")
+    # Reset and initialize store
+    reset_store()
+    store = get_store()
     
-    nodes = await get_nodes()
-    healthy_nodes = [n for n in nodes if n["healthy"]]
-    
-    if not healthy_nodes:
-        deploy_status["error"] = "NO_RUNNER"
-        deploy_status["logs"] = ["ERROR: No healthy nodes available for deployment"]
-        return JSONResponse({
-            "status": "error",
-            "error": "NO_RUNNER",
-            "message": "No deployment runner linked"
-        }, status_code=409)
-    
-    deploy_status["running"] = True
-    deploy_status["status"] = "running"
-    deploy_status["logs"] = [f"Starting deployment with target_version={target_version}"]
-    deploy_status["error"] = None
-    
-    background_tasks.add_task(run_deployment, target_version)
+    # Start deployment in background
+    background_tasks.add_task(start_deploy, spec, store)
     
     return JSONResponse({
         "status": "started",
-        "message": f"Deployment started with target_version={target_version}"
+        "run_id": store.run_id,
+        "message": f"Deployment started with target_version={spec.target_version}"
     })
 
 
-async def run_deployment(target_version: str):
+@app.get("/api/deploy/status")
+async def deploy_status():
+    """Get current deployment status and logs"""
+    store = get_store()
+    return JSONResponse({
+        "running": store.running,
+        "run_id": store.run_id,
+        "logs": store.logs,
+        "result": store.result,
+        "rollback": store.rollback,
+        "error": store.error
+    })
+
+
+# Legacy POST endpoint for backward compatibility
+@app.post("/api/deploy/spec_old")
+async def deploy_spec(background_tasks: BackgroundTasks, spec: str = "{}"):
     """Run the actual deployment"""
     global deploy_status
     
@@ -194,18 +187,6 @@ async def run_deployment(target_version: str):
         deploy_status["error"] = str(e)
     finally:
         deploy_status["running"] = False
-
-
-@app.get("/api/deploy/status")
-async def deploy_status_endpoint():
-    """Get current deployment status and logs"""
-    return JSONResponse({
-        "running": deploy_status["running"],
-        "status": deploy_status["status"],
-        "current_node": deploy_status["current_node"],
-        "logs": deploy_status["logs"],
-        "error": deploy_status["error"]
-    })
 
 
 if __name__ == "__main__":

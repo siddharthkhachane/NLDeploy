@@ -1,6 +1,9 @@
 import subprocess
 import re
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def runner_available() -> bool:
@@ -11,27 +14,28 @@ def runner_available() -> bool:
     - ansible-playbook command exists
     - ansible/deploy.yml exists
     - ansible/inventory.ini exists
-    - (optional) docker command exists
     
     Returns:
         True if runner is ready, False otherwise
     """
-    checks = [
-        ("ansible-playbook", _check_command_exists("ansible-playbook")),
-        ("ansible/deploy.yml", os.path.exists("ansible/deploy.yml")),
-        ("ansible/inventory.ini", os.path.exists("ansible/inventory.ini")),
-    ]
+    # Check critical files first
+    has_deploy_yml = os.path.exists("ansible/deploy.yml")
+    has_inventory = os.path.exists("ansible/inventory.ini")
     
-    optional_checks = [
-        ("docker", _check_command_exists("docker")),
-    ]
+    if not (has_deploy_yml and has_inventory):
+        logger.warning(f"Missing Ansible files: deploy.yml={has_deploy_yml}, inventory.ini={has_inventory}")
+        return False
     
-    # All critical checks must pass
-    for name, result in checks:
-        if not result:
-            return False
+    # Check for ansible-playbook command
+    has_ansible = _check_command_exists("ansible-playbook")
     
-    return True
+    if not has_ansible:
+        logger.warning("ansible-playbook not found in PATH")
+        # On Windows, Ansible might be in WSL or requires special setup
+        # Log a helpful message but still return False
+        logger.info("Windows detected - Ansible may need WSL setup. See README for setup instructions.")
+    
+    return has_ansible
 
 
 def _check_command_exists(cmd: str) -> bool:

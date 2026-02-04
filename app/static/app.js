@@ -136,8 +136,8 @@ async function startDeploy() {
         const data = await response.json();
         
         if (response.status === 409 && data.error === 'NO_RUNNER') {
-            showErrorBanner('No deployment runner available. Please ensure nodes are running.');
-            addLog('ERROR: No healthy nodes available', 'error');
+            showErrorBanner(data.message || 'No deployment runner available.');
+            addLog(`ERROR: ${data.message || 'Runner not available'}`, 'error');
             isDeploying = false;
             document.getElementById('deployBtn').disabled = false;
             return;

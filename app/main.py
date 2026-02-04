@@ -120,7 +120,7 @@ async def deploy_with_spec(background_tasks: BackgroundTasks, request: DeploySpe
             status_code=409,
             detail={
                 "error": "NO_RUNNER",
-                "message": "No deployment runner linked. Generate-only mode is available."
+                "message": "Ansible runner not available. On Windows, ensure Ansible is installed (WSL recommended) or nodes are running for generate-only mode."
             }
         )
     
@@ -219,7 +219,7 @@ async def execute_command_endpoint(background_tasks: BackgroundTasks, request: C
             status_code=409,
             detail={
                 "error": "NO_RUNNER",
-                "message": "No deployment runner linked."
+                "message": "Ansible runner not available. On Windows, ensure Ansible is installed (WSL recommended) or nodes are running for generate-only mode."
             }
         )
     

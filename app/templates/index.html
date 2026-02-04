@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NLDeploy</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <h1>NLDeploy</h1>
+            <p>Control Plane & Deployment UI</p>
+        </header>
+
+        <!-- Error Banner -->
+        <div id="errorBanner" class="error-banner" style="display: none;">
+            <strong>⚠️ ERROR: No Deployment Runner</strong><br>
+            <span id="errorMessage"></span>
+        </div>
+
+        <!-- Main Content Grid -->
+        <div class="main-grid">
+            <!-- Left Column: Nodes & Control -->
+            <div class="left-column">
+                <!-- Nodes Status Panel -->
+                <section class="panel">
+                    <h2>Node Status</h2>
+                    <div id="nodesPanel" class="nodes-grid">
+                        <div class="loading">Loading nodes...</div>
+                    </div>
+                </section>
+
+                <!-- Deployment Control -->
+                <section class="panel">
+                    <h2>Deployment Control</h2>
+                    <textarea id="deploymentDesc" 
+                              placeholder="Describe your deployment (e.g., 'Deploy version v2 to all nodes')"
+                              class="deployment-textarea"></textarea>
+                    
+                    <div class="button-group">
+                        <button id="generateBtn" class="btn btn-primary">Generate Plan</button>
+                        <button id="deployBtn" class="btn btn-danger" disabled>Deploy</button>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Right Column: Plan & Logs -->
+            <div class="right-column">
+                <!-- Generated Plan Panel -->
+                <section class="panel">
+                    <h2>Generated Plan</h2>
+                    <div class="spec-container">
+                        <div class="spec-section">
+                            <h3>Specification (JSON)</h3>
+                            <pre id="specJson" class="spec-output">{}</pre>
+                        </div>
+                        <div class="spec-section">
+                            <h3>Command & Snippets</h3>
+                            <pre id="commandOutput" class="spec-output"></pre>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Logs Panel -->
+                <section class="panel logs-panel">
+                    <h2>Deployment Logs</h2>
+                    <div id="logsPanel" class="logs-output">
+                        <p class="log-line log-info">Ready to deploy. Generate a plan first.</p>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

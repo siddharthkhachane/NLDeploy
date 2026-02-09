@@ -57,3 +57,4 @@ def test_spec_defaults():
     assert spec.health_path == "/health"
     assert spec.retries == 30
     assert spec.delay_sec == 0.5
+    assert spec.canary_first is True

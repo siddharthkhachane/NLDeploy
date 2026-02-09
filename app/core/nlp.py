@@ -3,6 +3,7 @@ import os
 import logging
 from typing import Optional, Union
 from app.core.models import DeploymentSpec, CommandSpec
+from app.core.security import assess_command_risk
 
 logger = logging.getLogger(__name__)
 
@@ -121,10 +122,25 @@ def parse_command_text(text: str, command_type: str) -> CommandSpec:
     if not target_nodes:
         target_nodes = ["node1", "node2", "node3"]
     
-    return CommandSpec(
+    scale_direction = "none"
+    if command_type == "scale":
+        text_lower = text.lower()
+        if re.search(r"\bscale\s+down\b|\bdownscale\b", text_lower):
+            scale_direction = "down"
+        elif re.search(r"\bscale\s+up\b|\bupscale\b", text_lower):
+            scale_direction = "up"
+
+    spec = CommandSpec(
         command_type=command_type,
-        target_nodes=target_nodes
+        target_nodes=target_nodes,
+        scale_direction=scale_direction,
     )
+
+    requires_confirmation, risk_reason = assess_command_risk(spec)
+    spec.requires_confirmation = requires_confirmation
+    spec.risk_reason = risk_reason
+
+    return spec
 
 
 

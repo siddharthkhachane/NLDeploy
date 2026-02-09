@@ -12,6 +12,8 @@ def test_generate_basic():
     assert "command" in artifacts
     assert "inventory_template" in artifacts
     assert "notes" in artifacts
+    assert "risk_checks" in artifacts
+    assert "snippets" in artifacts
 
 
 def test_generate_spec_in_output():
@@ -72,3 +74,9 @@ def test_generate_notes():
     assert "docker compose" in notes_text
     assert "ansible" in notes_text
     assert "curl" in notes_text
+
+
+def test_generate_failure_injection_command():
+    spec = DeploymentSpec(target_version="v2", failure_injection_node="node2")
+    artifacts = generate_artifacts(spec)
+    assert "force_fail_node=node2" in artifacts["command"]

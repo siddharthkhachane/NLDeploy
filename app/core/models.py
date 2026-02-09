@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, field_validator
-from typing import Literal, Optional, Union
+from typing import Literal, Optional
 
 
 class DeploymentSpec(BaseModel):
@@ -10,6 +10,11 @@ class DeploymentSpec(BaseModel):
     health_path: str = Field(default="/health", description="Health check endpoint path")
     retries: int = Field(default=30, description="Number of health check retries")
     delay_sec: float = Field(default=0.5, description="Delay between retries in seconds")
+    canary_first: bool = Field(default=True, description="Deploy to a canary node first")
+    failure_injection_node: Optional[str] = Field(
+        default=None,
+        description="Optional test-only node name to force deployment failure"
+    )
     
     @field_validator("batch_size")
     @classmethod
@@ -25,11 +30,25 @@ class DeploymentSpec(BaseModel):
             raise ValueError("target_version is required")
         return v
 
+    @field_validator("failure_injection_node")
+    @classmethod
+    def validate_failure_injection_node(cls, v):
+        if v is None:
+            return v
+        valid_nodes = {"node1", "node2", "node3"}
+        if v not in valid_nodes:
+            raise ValueError(f"failure_injection_node must be one of {valid_nodes}")
+        return v
+
 
 class CommandSpec(BaseModel):
     """Command execution specification (for non-deployment ops)"""
     command_type: Literal["stop", "restart", "scale"] = Field(..., description="Type of command")
     target_nodes: list[str] = Field(default_factory=lambda: ["node1", "node2", "node3"], description="Target nodes")
+    scale_direction: Literal["up", "down", "none"] = Field(default="none", description="Scale command direction")
+    requires_confirmation: bool = Field(default=False, description="Whether command needs user confirmation")
+    risk_reason: Optional[str] = Field(default=None, description="Reason command is considered risky")
+    confirmed: bool = Field(default=False, description="Explicit user confirmation for risky commands")
     
     @field_validator("target_nodes")
     @classmethod

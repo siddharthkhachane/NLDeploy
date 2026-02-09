@@ -138,3 +138,18 @@ def test_parse_command_with_node_filter():
     assert "node1" in spec.target_nodes
     assert "node3" in spec.target_nodes
 
+
+def test_parse_stop_all_requires_confirmation():
+    spec = parse_deploy_text("Stop all nodes")
+    assert isinstance(spec, CommandSpec)
+    assert spec.requires_confirmation is True
+    assert spec.risk_reason is not None
+
+
+def test_parse_scale_down_requires_confirmation():
+    spec = parse_deploy_text("Scale down node1")
+    assert isinstance(spec, CommandSpec)
+    assert spec.command_type == "scale"
+    assert spec.scale_direction == "down"
+    assert spec.requires_confirmation is True
+

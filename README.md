@@ -1,98 +1,75 @@
 # NLDeploy
 
-## Step 1: Docker Nodes (3 Linux Containers)
-
-This project implements a multi-node deployment system with FastAPI servers running in Docker containers.
-
-### Prerequisites
-- Docker
-- Docker Compose
-
-### Quick Start
-
-Build and start the containers:
-```bash
-docker compose -f docker/docker-compose.yml up --build
-```
-
-### Testing the Services
-
-Check node1:
-```bash
-curl localhost:18081/version
-```
-
-Check health:
-```bash
-curl localhost:18081/health
-```
-
-### Available Endpoints
-
-Each node exposes:
-- `GET /` - Returns node name and version
-- `GET /health` - Health check endpoint
-- `GET /version` - Returns app version
+Natural-language deployment control plane with FastAPI, Docker node services, and Ansible canary rollout.
 
 Deployed Version: v1
 
----
+## What Is New
 
-## Step 2: Ansible Rolling Deploy Playbook
+- Dry-run preview before execution (`/api/plan/preview`)
+- Stage timeline in UI: Parse -> Plan -> Canary -> Rollout -> Verify
+- Canary-first Ansible deployment with promotion gate
+- Automatic rollback on deployment failure
+- Demo failure injection (`force_fail_node=node2`) to prove rollback
+- Risk guardrails for commands (confirmation required for `stop all` and `scale down`)
+- One-command demo script
 
-Rolling deployment with docker compose override files per service.
+## Prerequisites
 
-### Prerequisites
-- Ansible installed
-- Docker and Docker Compose running
-- All nodes running
+- Docker + Docker Compose
+- Python 3.10+
+- Ansible (`ansible-playbook`) on PATH or available in WSL
 
-### Usage
+## Run
 
-Deploy a new version to all nodes (one at a time):
+1. Install Python dependencies:
 ```bash
-ansible-playbook -i ansible/inventory.ini ansible/deploy.yml -e target_version=v2
+pip install -r requirements.txt
 ```
 
-This will:
-1. Create a compose override file for each service with the new APP_VERSION
-2. Force recreate only that service with the new version
-3. Run health checks with retries (30 times with 0.5s delay)
-4. Update README with deployed version
-
-### Inventory File
-
-The `ansible/inventory.ini` defines three hosts with:
-- `service_name`: name of the docker service
-- `host_port`: port to health check on
-
-### Group Variables
-
-The `ansible/group_vars/all.yml` defines:
-- `health_path`: `/health` endpoint path
-- `retries`: 30 attempts for health check
-- `delay_sec`: 0.5 seconds between retries
-
----
-
-## Step 3: Ansible Rollback Playbook
-
-Rollback to a previous version.
-
-### Usage
-
-Rollback all nodes to a previous version:
+2. Start node containers:
 ```bash
-ansible-playbook -i ansible/inventory.ini ansible/rollback.yml -e rollback_version=v1
+docker compose -f docker/docker-compose.yml up --build -d
 ```
 
-This will:
-1. Create a compose override file for each service with the rollback APP_VERSION
-2. Force recreate only that service with the rollback version
-3. Run health checks with retries
-4. Update README with rollback version
+3. Start UI/API:
+```bash
+uvicorn app.main:app --reload --port 8000
+```
 
-### Rollback Strategy
+4. Open:
+```text
+http://localhost:8000
+```
 
-Similar to deploy playbook but uses `rollback_version` variable to target a specific version to revert to.
+## Check
 
+1. Verify nodes:
+```bash
+curl http://localhost:18081/health
+curl http://localhost:18082/health
+curl http://localhost:18083/health
+```
+
+2. Try a normal deploy in UI:
+- Enter `Deploy v2 to all nodes`
+- Click `Generate Plan`, then `Deploy`
+- Watch timeline advance through canary and rollout
+
+3. Test rollback demo:
+- Enable `Simulate failure on node2`
+- Run `Deploy v3 to all nodes`
+- Confirm logs show failure and auto-rollback
+
+4. Test risk guardrail:
+- Enter `Stop all nodes`
+- Generate plan, observe risk checks
+- Execute is blocked unless `I confirm this risky command` is checked
+
+## One-Command Demo (PowerShell)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/demo.ps1
+```
+
+This script starts containers, runs API tests, and prints the key endpoints to open/check.

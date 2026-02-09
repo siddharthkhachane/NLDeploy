@@ -180,6 +180,8 @@ async def execute_command(command_spec: CommandSpec, store: DeploymentStore) -> 
         playbook = f"ansible/{command_spec.command_type}.yml"
         cmd = [*ansible_cmd, playbook, "-i", "ansible/inventory.ini", "-l", target_filter]
         cmd.extend(["-e", f"target_nodes={target_filter}"])
+        if command_spec.command_type == "scale":
+            cmd.extend(["-e", f"scale_direction={command_spec.scale_direction}"])
 
         store.timeline.append({"stage": "execute", "detail": "Running ansible command"})
         store.logs.append(f"Executing {command_spec.command_type} on {', '.join(command_spec.target_nodes)}")

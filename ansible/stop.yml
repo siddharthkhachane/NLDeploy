@@ -1,25 +1,24 @@
 ---
 - name: Stop services on target nodes
   hosts: all
+  connection: local
+  gather_facts: false
   serial: 1
+  vars:
+    docker_compose_file: docker/docker-compose.yml
+    docker_compose_dir: "{{ playbook_dir }}/.."
   
   tasks:
-    - name: Stop Docker containers for {{ service_name }}
+    - name: Stop {{ service_name }} container
       shell: |
-        cd /tmp/{{ service_name }}_deploy
-        docker compose down
+        cd {{ docker_compose_dir }}
+        docker compose -f {{ docker_compose_file }} stop {{ service_name }}
       register: stop_result
-      failed_when: stop_result.rc != 0 and "No such file or directory" not in stop_result.stderr
+      failed_when: stop_result.rc != 0
     
-    - name: Log stop action
-      lineinfile:
-        path: /tmp/{{ service_name }}_deploy/README.md
-        line: "- {{ ansible_date_time.iso8601 }}: Service stopped by command"
-        create: yes
-      ignore_errors: yes
-    
-    - name: Verify containers are stopped
-      shell: docker ps | grep {{ service_name }} || echo "Not running"
+    - name: Verify {{ service_name }} container is stopped
+      shell: |
+        docker ps --format "{{ '{{' }}.Names{{ '}}' }}" | grep -E "{{ service_name }}" >/dev/null && echo "running" || echo "stopped"
       register: verify_stopped
     
     - name: Show verification result

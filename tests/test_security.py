@@ -1,6 +1,12 @@
 import pytest
 from unittest.mock import patch, MagicMock
-from app.core.security import runner_available, validate_version_string
+from app.core.security import (
+    assess_command_risk,
+    runner_available,
+    validate_command_execution,
+    validate_version_string,
+)
+from app.core.models import CommandSpec
 
 
 class TestRunnerAvailable:
@@ -107,3 +113,36 @@ class TestValidateVersionString:
     def test_validate_trailing_dot(self):
         """Test invalid: trailing dot"""
         assert validate_version_string("v1.2.") is False
+
+
+class TestCommandRiskGuardrails:
+    def test_stop_all_is_risky(self):
+        spec = CommandSpec(command_type="stop", target_nodes=["node1", "node2", "node3"])
+        risky, reason = assess_command_risk(spec)
+        assert risky is True
+        assert "downtime" in reason.lower()
+
+    def test_scale_down_is_risky(self):
+        spec = CommandSpec(command_type="scale", scale_direction="down", target_nodes=["node1"])
+        risky, reason = assess_command_risk(spec)
+        assert risky is True
+        assert "scale down" in reason.lower()
+
+    def test_validate_blocks_unconfirmed_risky_command(self):
+        spec = CommandSpec(
+            command_type="stop",
+            target_nodes=["node1", "node2", "node3"],
+            requires_confirmation=True,
+            confirmed=False,
+        )
+        with pytest.raises(ValueError):
+            validate_command_execution(spec)
+
+    def test_validate_allows_confirmed_risky_command(self):
+        spec = CommandSpec(
+            command_type="stop",
+            target_nodes=["node1", "node2", "node3"],
+            requires_confirmation=True,
+            confirmed=True,
+        )
+        validate_command_execution(spec)

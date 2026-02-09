@@ -8,23 +8,18 @@
 </head>
 <body>
     <div class="container">
-        <!-- Header -->
         <header>
-            <h1>NLDeploy</h1>
-            <p>Control Plane & Deployment UI</p>
+            <h1>NLDeploy Control Plane</h1>
+            <p>Parse -> Plan -> Canary -> Rollout -> Verify</p>
         </header>
 
-        <!-- Error Banner -->
-        <div id="errorBanner" class="error-banner" style="display: none;">
-            <strong>⚠️ ERROR: No Deployment Runner</strong><br>
+        <div id="errorBanner" class="error-banner" style="display:none;">
+            <strong>Runner Error</strong>
             <span id="errorMessage"></span>
         </div>
 
-        <!-- Main Content Grid -->
         <div class="main-grid">
-            <!-- Left Column: Nodes & Control -->
             <div class="left-column">
-                <!-- Nodes Status Panel -->
                 <section class="panel">
                     <h2>Node Status</h2>
                     <div id="nodesPanel" class="nodes-grid">
@@ -32,13 +27,26 @@
                     </div>
                 </section>
 
-                <!-- Deployment Control -->
                 <section class="panel">
-                    <h2>Deployment & Command Control</h2>
-                    <textarea id="deploymentDesc" 
-                              placeholder="Describe your deployment or command&#10;Examples:&#10;  - Deploy v2 to all nodes&#10;  - Stop node1&#10;  - Restart all nodes"
-                              class="deployment-textarea"></textarea>
-                    
+                    <h2>Control</h2>
+                    <textarea
+                        id="deploymentDesc"
+                        class="deployment-textarea"
+                        placeholder="Examples:
+Deploy v2 to all nodes
+Restart node1
+Stop all nodes"></textarea>
+
+                    <label class="toggle-line">
+                        <input id="simulateFailure" type="checkbox">
+                        Simulate failure on node2 (demo rollback)
+                    </label>
+
+                    <label id="confirmRiskWrap" class="toggle-line hidden">
+                        <input id="confirmRisk" type="checkbox">
+                        I confirm this risky command
+                    </label>
+
                     <div class="button-group">
                         <button id="generateBtn" class="btn btn-primary">Generate Plan</button>
                         <button id="deployBtn" class="btn btn-danger" disabled>Deploy</button>
@@ -46,28 +54,22 @@
                 </section>
             </div>
 
-            <!-- Right Column: Plan & Logs -->
             <div class="right-column">
-                <!-- Generated Plan Panel -->
                 <section class="panel">
-                    <h2>Generated Plan</h2>
-                    <div class="spec-container">
-                        <div class="spec-section">
-                            <h3>Specification (JSON)</h3>
-                            <pre id="specJson" class="spec-output">{}</pre>
-                        </div>
-                        <div class="spec-section">
-                            <h3>Command & Snippets</h3>
-                            <pre id="commandOutput" class="spec-output"></pre>
-                        </div>
-                    </div>
+                    <h2>Plan Preview</h2>
+                    <div id="timelinePanel" class="timeline"></div>
+                    <h3>Parsed Spec</h3>
+                    <pre id="specJson" class="spec-output">{}</pre>
+                    <h3>Exact Commands</h3>
+                    <pre id="commandOutput" class="spec-output"></pre>
+                    <h3>Risk Checks</h3>
+                    <div id="riskChecks" class="risk-checks"></div>
                 </section>
 
-                <!-- Logs Panel -->
                 <section class="panel logs-panel">
-                    <h2>Operation Logs</h2>
+                    <h2>Live Logs</h2>
                     <div id="logsPanel" class="logs-output">
-                        <p class="log-line log-info">Ready to deploy or execute commands. Generate a plan first.</p>
+                        <p class="log-line log-info">Ready.</p>
                     </div>
                 </section>
             </div>

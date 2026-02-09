@@ -12,6 +12,8 @@ class DeploymentStore:
     result: Optional[dict] = None
     rollback: Optional[dict] = None
     error: Optional[str] = None
+    current_stage: str = "idle"
+    timeline: list[dict] = field(default_factory=list)
 
 
 # Global deployment state

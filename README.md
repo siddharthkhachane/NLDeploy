@@ -1,8 +1,8 @@
 # NLDeploy
 
-Natural-language deployment control plane with FastAPI, Docker node services, and Ansible canary rollout.
+Built a natural-language deployment system that uses an LLM to translate requests into structured, safe rollout plans, enforced by guardrails and rolling execution.
 
-Deployed Version: v1
+Tech stack: Python, FastAPI, Ansible, Docker (local server simulation), Jinja (server-side UI), REST APIs, and an LLM for intent interpretation.
 
 Video Demo: https://youtu.be/Sm7j81-H-L0
 

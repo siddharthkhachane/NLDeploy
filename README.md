@@ -4,6 +4,8 @@ Natural-language deployment control plane with FastAPI, Docker node services, an
 
 Deployed Version: v1
 
+Video Demo: https://youtu.be/Sm7j81-H-L0
+
 ## What Is New
 
 - Dry-run preview before execution (`/api/plan/preview`)

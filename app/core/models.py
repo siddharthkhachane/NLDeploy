@@ -46,6 +46,11 @@ class CommandSpec(BaseModel):
     command_type: Literal["stop", "restart", "scale"] = Field(..., description="Type of command")
     target_nodes: list[str] = Field(default_factory=lambda: ["node1", "node2", "node3"], description="Target nodes")
     scale_direction: Literal["up", "down", "none"] = Field(default="none", description="Scale command direction")
+    environment: Literal["dev", "staging", "prod"] = Field(default="dev", description="Target environment")
+    stop_guard_token: Optional[str] = Field(
+        default=None,
+        description="Typed safeguard token for stop command, expected format: STOP <environment>",
+    )
     requires_confirmation: bool = Field(default=False, description="Whether command needs user confirmation")
     risk_reason: Optional[str] = Field(default=None, description="Reason command is considered risky")
     confirmed: bool = Field(default=False, description="Explicit user confirmation for risky commands")

@@ -162,9 +162,39 @@ header p {
     color: white;
 }
 
+.btn-secondary {
+    background: #385065;
+    color: white;
+}
+
 .btn:disabled {
     cursor: not-allowed;
     opacity: 0.5;
+}
+
+.control-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.control-grid label {
+    color: var(--muted);
+    display: grid;
+    font-size: 0.82rem;
+    gap: 4px;
+}
+
+.text-input {
+    border: 1px solid #bfcedd;
+    border-radius: 8px;
+    font-family: "Consolas", "Courier New", monospace;
+    padding: 8px;
+}
+
+.stop-guard {
+    min-width: 170px;
 }
 
 .toggle-line {
@@ -254,8 +284,28 @@ header p {
     padding: 12px;
 }
 
+.activity-panel {
+    display: grid;
+    gap: 6px;
+    max-height: 220px;
+    overflow: auto;
+}
+
+.activity-item {
+    background: #eef4f9;
+    border-left: 4px solid #7ea8c8;
+    border-radius: 8px;
+    color: #173348;
+    font-size: 0.8rem;
+    padding: 8px 10px;
+}
+
 @media (max-width: 1024px) {
     .main-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .control-grid {
         grid-template-columns: 1fr;
     }
 }

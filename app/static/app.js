@@ -10,6 +10,34 @@ function stageList() {
     return currentSpecType === "command" ? COMMAND_STAGES : DEPLOY_STAGES;
 }
 
+function getAccessContext() {
+    const actor = (document.getElementById("actorInput").value || "anonymous").trim() || "anonymous";
+    const role = document.getElementById("roleSelect").value || "admin";
+    const environment = document.getElementById("environmentSelect").value || "dev";
+    return { actor, role, environment };
+}
+
+function authHeaders() {
+    const context = getAccessContext();
+    return {
+        "Content-Type": "application/json",
+        "X-User": context.actor,
+        "X-Role": context.role,
+        "X-Environment": context.environment,
+    };
+}
+
+function syncStopGuardTokenUI() {
+    const { environment } = getAccessContext();
+    const input = document.getElementById("stopGuardInput");
+    const expected = `STOP ${environment}`;
+    const knownTokens = new Set(["STOP dev", "STOP staging", "STOP prod"]);
+    input.placeholder = expected;
+    if (knownTokens.has(input.value.trim())) {
+        input.value = "";
+    }
+}
+
 function renderTimeline(activeStage = "parse") {
     const panel = document.getElementById("timelinePanel");
     const stages = stageList();
@@ -78,6 +106,7 @@ async function generatePlan() {
         const spec = await parseResp.json();
         currentSpec = spec;
         currentSpecType = spec.spec_type || "deployment";
+        const context = getAccessContext();
 
         document.getElementById("specJson").textContent = JSON.stringify(spec, null, 2);
         renderTimeline("plan");
@@ -88,9 +117,17 @@ async function generatePlan() {
             delete currentSpec.failure_injection_node;
         }
 
+        if (currentSpecType === "command") {
+            currentSpec.environment = context.environment;
+            if (currentSpec.command_type !== "stop") {
+                currentSpec.stop_guard_token = null;
+                document.getElementById("stopGuardInput").value = "";
+            }
+        }
+
         const previewResp = await fetch("/api/plan/preview", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: authHeaders(),
             body: JSON.stringify({ spec_type: currentSpecType, spec: currentSpec }),
         });
         if (!previewResp.ok) {
@@ -110,6 +147,12 @@ async function generatePlan() {
         document.getElementById("confirmRiskWrap").classList.toggle("hidden", !risky);
         if (!risky) {
             document.getElementById("confirmRisk").checked = false;
+        }
+
+        const showStopGuard = currentSpecType === "command" && currentSpec.command_type === "stop";
+        document.getElementById("stopGuardWrap").classList.toggle("hidden", !showStopGuard);
+        if (showStopGuard) {
+            syncStopGuardTokenUI();
         }
 
         addLog("Plan preview generated.", "info");
@@ -138,11 +181,22 @@ async function startDeploy() {
     }
 
     const confirmRisk = document.getElementById("confirmRisk").checked;
+    const context = getAccessContext();
     if (currentSpecType === "command") {
         currentSpec.confirmed = confirmRisk;
+        currentSpec.environment = context.environment;
         if (currentSpec.requires_confirmation && !confirmRisk) {
             alert("This command is risky. Please confirm before executing.");
             return;
+        }
+        if (currentSpec.command_type === "stop") {
+            const expected = `STOP ${context.environment}`;
+            const token = document.getElementById("stopGuardInput").value.trim();
+            currentSpec.stop_guard_token = token;
+            if (token !== expected) {
+                alert(`Type exact safeguard token: ${expected}`);
+                return;
+            }
         }
     }
 
@@ -158,7 +212,7 @@ async function startDeploy() {
         const endpoint = currentSpecType === "command" ? "/api/command/execute" : "/api/deploy/spec";
         const response = await fetch(endpoint, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: authHeaders(),
             body: JSON.stringify({ spec: currentSpec }),
         });
         const data = await response.json();
@@ -221,6 +275,56 @@ async function pollDeploymentStatus() {
     }
 }
 
+async function triggerRollback() {
+    if (isDeploying) {
+        alert("Wait for the current operation to finish first.");
+        return;
+    }
+
+    const context = getAccessContext();
+    try {
+        const response = await fetch("/api/deploy/rollback/latest", {
+            method: "POST",
+            headers: authHeaders(),
+            body: JSON.stringify({ environment: context.environment }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.detail || data.message || "Rollback failed");
+        }
+        addLog(data.message || "Rollback started.", "info");
+        isDeploying = true;
+        document.getElementById("deployBtn").disabled = true;
+        pollDeploymentStatus();
+    } catch (error) {
+        addLog(`Rollback error: ${error.message}`, "error");
+    }
+}
+
+async function pollActivity() {
+    try {
+        const response = await fetch("/api/activity?limit=20");
+        const data = await response.json();
+        renderActivity(data.items || []);
+    } catch (error) {
+        console.error("Error polling activity:", error);
+    }
+}
+
+function renderActivity(items) {
+    const panel = document.getElementById("activityPanel");
+    if (!items.length) {
+        panel.innerHTML = '<div class="loading">No activity yet.</div>';
+        return;
+    }
+    panel.innerHTML = items
+        .map(
+            (item) =>
+                `<div class="activity-item">[${escapeHtml(item.status || "n/a")}] ${escapeHtml(item.type || "run")} | ${escapeHtml(item.environment || "dev")} | by=${escapeHtml(item.actor || "anonymous")}<br>${escapeHtml(item.detail || "")}</div>`,
+        )
+        .join("");
+}
+
 function addLog(message, type = "info") {
     const logsPanel = document.getElementById("logsPanel");
     const line = document.createElement("p");
@@ -257,6 +361,11 @@ function escapeHtml(text) {
 
 document.getElementById("generateBtn").addEventListener("click", generatePlan);
 document.getElementById("deployBtn").addEventListener("click", startDeploy);
+document.getElementById("rollbackBtn").addEventListener("click", triggerRollback);
+document.getElementById("environmentSelect").addEventListener("change", syncStopGuardTokenUI);
+syncStopGuardTokenUI();
 renderTimeline("parse");
 pollNodes();
+pollActivity();
 setInterval(pollNodes, 3000);
+setInterval(pollActivity, 3000);

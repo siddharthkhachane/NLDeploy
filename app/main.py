@@ -13,15 +13,17 @@ from app.core.generate import generate_artifacts
 from app.core.models import CommandSpec, DeploymentSpec
 from app.core.nlp import parse_deploy_text
 from app.core.nodes import NODES
-from app.core.runner import start_deploy
+from app.core.runner import run_manual_rollback_latest, start_deploy
 from app.core.security import (
+    authorize_action,
     assess_command_risk,
     get_ansible_command,
+    normalize_role,
     runner_available,
     validate_command_execution,
     validate_version_string,
 )
-from app.core.store import DeploymentStore, get_store, reset_store
+from app.core.store import DeploymentStore, add_activity, get_activity, get_store, reset_store
 
 app = FastAPI()
 templates = Jinja2Templates(directory="app/templates")
@@ -40,9 +42,27 @@ class CommandSpecRequest(BaseModel):
     spec: CommandSpec
 
 
+class RollbackRequest(BaseModel):
+    environment: str = "dev"
+
+
 class PreviewRequest(BaseModel):
     spec_type: str
     spec: dict[str, Any]
+
+
+def get_access_context(request: Request) -> dict[str, str]:
+    role = normalize_role(request.headers.get("X-Role"))
+    actor = (request.headers.get("X-User") or "anonymous").strip() or "anonymous"
+    return {"role": role, "actor": actor}
+
+
+def deny_action(action: str, role: str) -> None:
+    if not authorize_action(role, action):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Role '{role}' is not allowed to perform '{action}'.",
+        )
 
 
 @app.get("/")
@@ -120,6 +140,9 @@ async def preview_plan(request: PreviewRequest):
     if request.spec_type == "command":
         spec = CommandSpec(**request.spec)
         requires_confirmation, risk_reason = assess_command_risk(spec)
+        risk_checks = [risk_reason] if risk_reason else ["No high-risk checks triggered."]
+        if spec.command_type == "stop":
+            risk_checks.append(f"Typed safeguard required: STOP {spec.environment}")
         return JSONResponse(
             {
                 "spec_type": "command",
@@ -128,7 +151,7 @@ async def preview_plan(request: PreviewRequest):
                 "exact_commands": [
                     f"ansible-playbook ansible/{spec.command_type}.yml -i ansible/inventory.ini -l {','.join(spec.target_nodes)}"
                 ],
-                "risk_checks": [risk_reason] if risk_reason else ["No high-risk checks triggered."],
+                "risk_checks": risk_checks,
                 "stages": ["parse", "plan", "execute", "verify"],
                 "requires_confirmation": requires_confirmation,
             }
@@ -138,7 +161,7 @@ async def preview_plan(request: PreviewRequest):
 
 
 @app.post("/api/deploy/spec")
-async def deploy_with_spec(background_tasks: BackgroundTasks, request: DeploySpecRequest):
+async def deploy_with_spec(background_tasks: BackgroundTasks, request: Request, body: DeploySpecRequest):
     if not runner_available():
         raise HTTPException(
             status_code=409,
@@ -148,29 +171,46 @@ async def deploy_with_spec(background_tasks: BackgroundTasks, request: DeploySpe
             },
         )
 
-    spec = request.spec
+    context = get_access_context(request)
+    deny_action("deploy", context["role"])
+
+    spec = body.spec
     if not validate_version_string(spec.target_version):
         raise HTTPException(status_code=400, detail="Invalid version format")
 
     reset_store()
     store = get_store()
-    background_tasks.add_task(start_deploy, spec, store)
+    environment = request.headers.get("X-Environment", "dev")
+    background_tasks.add_task(start_deploy, spec, store, context["actor"], context["role"], environment)
     return JSONResponse(
         {
             "status": "started",
             "run_id": store.run_id,
+            "actor": context["actor"],
+            "role": context["role"],
             "message": f"Deployment started with target_version={spec.target_version}",
         }
     )
 
 
-async def execute_command(command_spec: CommandSpec, store: DeploymentStore) -> None:
+async def execute_command(command_spec: CommandSpec, store: DeploymentStore, actor: str, role: str) -> None:
     try:
         validate_command_execution(command_spec)
         store.running = True
         store.logs = []
         store.current_stage = "execute"
         store.timeline = [{"stage": "parse", "detail": "Command accepted"}]
+        add_activity(
+            {
+                "run_id": store.run_id,
+                "type": command_spec.command_type,
+                "actor": actor,
+                "role": role,
+                "environment": command_spec.environment,
+                "status": "started",
+                "detail": f"Command requested on {', '.join(command_spec.target_nodes)}",
+            }
+        )
 
         ansible_cmd = get_ansible_command()
         if not ansible_cmd:
@@ -205,28 +245,72 @@ async def execute_command(command_spec: CommandSpec, store: DeploymentStore) -> 
             store.result = {"status": "success"}
             store.timeline.append({"stage": "verify", "detail": "Command completed successfully"})
             store.logs.append("Command completed successfully")
+            add_activity(
+                {
+                    "run_id": store.run_id,
+                    "type": command_spec.command_type,
+                    "actor": actor,
+                    "role": role,
+                    "environment": command_spec.environment,
+                    "status": "success",
+                    "detail": f"Completed on {', '.join(command_spec.target_nodes)}",
+                }
+            )
         else:
             store.result = {"status": "failed"}
             store.error = f"Command exited with code {returncode}"
             store.timeline.append({"stage": "failed", "detail": store.error})
             store.logs.append("Command failed")
+            add_activity(
+                {
+                    "run_id": store.run_id,
+                    "type": command_spec.command_type,
+                    "actor": actor,
+                    "role": role,
+                    "environment": command_spec.environment,
+                    "status": "failed",
+                    "detail": store.error,
+                }
+            )
 
     except ValueError as e:
         store.result = {"status": "blocked"}
         store.error = str(e)
         store.timeline.append({"stage": "blocked", "detail": str(e)})
         store.logs.append(f"Blocked: {str(e)}")
+        add_activity(
+            {
+                "run_id": store.run_id,
+                "type": command_spec.command_type,
+                "actor": actor,
+                "role": role,
+                "environment": command_spec.environment,
+                "status": "blocked",
+                "detail": str(e),
+            }
+        )
     except Exception as e:
         store.result = {"status": "failed"}
         store.error = str(e)
         store.timeline.append({"stage": "failed", "detail": str(e)})
         store.logs.append(f"Error executing command: {str(e)}")
+        add_activity(
+            {
+                "run_id": store.run_id,
+                "type": command_spec.command_type,
+                "actor": actor,
+                "role": role,
+                "environment": command_spec.environment,
+                "status": "error",
+                "detail": str(e),
+            }
+        )
     finally:
         store.running = False
 
 
 @app.post("/api/command/execute")
-async def execute_command_endpoint(background_tasks: BackgroundTasks, request: CommandSpecRequest):
+async def execute_command_endpoint(background_tasks: BackgroundTasks, request: Request, body: CommandSpecRequest):
     if not runner_available():
         raise HTTPException(
             status_code=409,
@@ -236,16 +320,21 @@ async def execute_command_endpoint(background_tasks: BackgroundTasks, request: C
             },
         )
 
+    context = get_access_context(request)
+    deny_action(body.spec.command_type, context["role"])
+
     reset_store()
     store = get_store()
-    background_tasks.add_task(execute_command, request.spec, store)
+    background_tasks.add_task(execute_command, body.spec, store, context["actor"], context["role"])
     return JSONResponse(
         {
             "status": "started",
             "run_id": store.run_id,
-            "command_type": request.spec.command_type,
-            "target_nodes": request.spec.target_nodes,
-            "message": f"Command '{request.spec.command_type}' started",
+            "command_type": body.spec.command_type,
+            "target_nodes": body.spec.target_nodes,
+            "actor": context["actor"],
+            "role": context["role"],
+            "message": f"Command '{body.spec.command_type}' started",
         }
     )
 
@@ -263,6 +352,58 @@ async def deploy_status():
             "error": store.error,
             "current_stage": store.current_stage,
             "timeline": store.timeline,
+        }
+    )
+
+
+@app.get("/api/activity")
+async def activity_feed(limit: int = 30):
+    return JSONResponse({"items": get_activity(limit)})
+
+
+@app.post("/api/deploy/rollback/latest")
+async def rollback_latest(background_tasks: BackgroundTasks, request: Request, body: RollbackRequest):
+    if not runner_available():
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "NO_RUNNER",
+                "message": "Ansible runner not available. Install ansible-playbook on PATH or in WSL.",
+            },
+        )
+
+    context = get_access_context(request)
+    deny_action("rollback", context["role"])
+
+    store = get_store()
+    if store.running:
+        raise HTTPException(status_code=409, detail="Another operation is currently running.")
+    if not store.rollback or not store.rollback.get("version"):
+        raise HTTPException(status_code=400, detail="No rollback version available yet.")
+
+    background_tasks.add_task(
+        run_manual_rollback_latest,
+        store,
+        context["actor"],
+        context["role"],
+        body.environment,
+    )
+    add_activity(
+        {
+            "run_id": store.run_id,
+            "type": "rollback",
+            "actor": context["actor"],
+            "role": context["role"],
+            "environment": body.environment,
+            "status": "queued",
+            "detail": f"Manual rollback queued to {store.rollback['version']}",
+        }
+    )
+    return JSONResponse(
+        {
+            "status": "started",
+            "run_id": store.run_id,
+            "message": f"Rollback started to {store.rollback['version']}",
         }
     )
 

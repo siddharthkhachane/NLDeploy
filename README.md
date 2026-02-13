@@ -6,15 +6,10 @@ Tech stack: Python, FastAPI, Ansible, Docker (local server simulation), Jinja (s
 
 Video Demo: https://youtu.be/Sm7j81-H-L0
 
-## What Is New
+Latest Update:
+Added role based access, environment selection, rollbacks to previous versions and timeline feed
+<img width="803" height="800" alt="image" src="https://github.com/user-attachments/assets/f57c819f-c643-49c9-bf8f-cb087e6b1500" />
 
-- Dry-run preview before execution (`/api/plan/preview`)
-- Stage timeline in UI: Parse -> Plan -> Canary -> Rollout -> Verify
-- Canary-first Ansible deployment with promotion gate
-- Automatic rollback on deployment failure
-- Demo failure injection (`force_fail_node=node2`) to prove rollback
-- Risk guardrails for commands (confirmation required for `stop all` and `scale down`)
-- One-command demo script
 
 ## Prerequisites
 

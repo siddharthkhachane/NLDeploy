@@ -75,3 +75,4 @@ powershell -ExecutionPolicy Bypass -File scripts/demo.ps1
 ```
 
 This script starts containers, runs API tests, and prints the key endpoints to open/check.
+Deployed Version: v1

@@ -27,6 +27,17 @@ function authHeaders() {
     };
 }
 
+function syncStopGuardTokenUI() {
+    const { environment } = getAccessContext();
+    const input = document.getElementById("stopGuardInput");
+    const expected = `STOP ${environment}`;
+    const knownTokens = new Set(["STOP dev", "STOP staging", "STOP prod"]);
+    input.placeholder = expected;
+    if (knownTokens.has(input.value.trim())) {
+        input.value = "";
+    }
+}
+
 function renderTimeline(activeStage = "parse") {
     const panel = document.getElementById("timelinePanel");
     const stages = stageList();
@@ -140,6 +151,9 @@ async function generatePlan() {
 
         const showStopGuard = currentSpecType === "command" && currentSpec.command_type === "stop";
         document.getElementById("stopGuardWrap").classList.toggle("hidden", !showStopGuard);
+        if (showStopGuard) {
+            syncStopGuardTokenUI();
+        }
 
         addLog("Plan preview generated.", "info");
     } catch (error) {
@@ -348,6 +362,8 @@ function escapeHtml(text) {
 document.getElementById("generateBtn").addEventListener("click", generatePlan);
 document.getElementById("deployBtn").addEventListener("click", startDeploy);
 document.getElementById("rollbackBtn").addEventListener("click", triggerRollback);
+document.getElementById("environmentSelect").addEventListener("change", syncStopGuardTokenUI);
+syncStopGuardTokenUI();
 renderTimeline("parse");
 pollNodes();
 pollActivity();

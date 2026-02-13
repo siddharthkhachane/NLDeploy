@@ -29,6 +29,29 @@
 
                 <section class="panel">
                     <h2>Control</h2>
+                    <div class="control-grid">
+                        <label>
+                            User
+                            <input id="actorInput" class="text-input" type="text" value="demo-user" maxlength="40">
+                        </label>
+                        <label>
+                            Role
+                            <select id="roleSelect" class="text-input">
+                                <option value="admin">admin</option>
+                                <option value="operator">operator</option>
+                                <option value="viewer">viewer</option>
+                            </select>
+                        </label>
+                        <label>
+                            Environment
+                            <select id="environmentSelect" class="text-input">
+                                <option value="dev">dev</option>
+                                <option value="staging">staging</option>
+                                <option value="prod">prod</option>
+                            </select>
+                        </label>
+                    </div>
+
                     <textarea
                         id="deploymentDesc"
                         class="deployment-textarea"
@@ -47,9 +70,15 @@ Stop all nodes"></textarea>
                         I confirm this risky command
                     </label>
 
+                    <label id="stopGuardWrap" class="toggle-line hidden">
+                        <span>Type safeguard</span>
+                        <input id="stopGuardInput" class="text-input stop-guard" type="text" placeholder="STOP dev">
+                    </label>
+
                     <div class="button-group">
                         <button id="generateBtn" class="btn btn-primary">Generate Plan</button>
                         <button id="deployBtn" class="btn btn-danger" disabled>Deploy</button>
+                        <button id="rollbackBtn" class="btn btn-secondary">Rollback Latest</button>
                     </div>
                 </section>
             </div>
@@ -70,6 +99,13 @@ Stop all nodes"></textarea>
                     <h2>Live Logs</h2>
                     <div id="logsPanel" class="logs-output">
                         <p class="log-line log-info">Ready.</p>
+                    </div>
+                </section>
+
+                <section class="panel">
+                    <h2>Run Timeline Feed</h2>
+                    <div id="activityPanel" class="activity-panel">
+                        <div class="loading">No activity yet.</div>
                     </div>
                 </section>
             </div>

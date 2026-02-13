@@ -8,6 +8,12 @@ from app.core.models import CommandSpec
 
 logger = logging.getLogger(__name__)
 
+ROLE_VIEWER = "viewer"
+ROLE_OPERATOR = "operator"
+ROLE_ADMIN = "admin"
+
+ALLOWED_ROLES = {ROLE_VIEWER, ROLE_OPERATOR, ROLE_ADMIN}
+
 
 def get_ansible_command() -> Optional[list[str]]:
     """
@@ -178,3 +184,37 @@ def validate_command_execution(spec: CommandSpec) -> None:
         raise ValueError(
             risk_reason or "Risky command requires explicit confirmation."
         )
+
+    if spec.command_type == "stop":
+        expected = f"STOP {spec.environment}"
+        provided = (spec.stop_guard_token or "").strip()
+        if provided != expected:
+            raise ValueError(f"Stop safeguard failed. Type exactly '{expected}' to continue.")
+
+
+def normalize_role(role: Optional[str]) -> str:
+    """
+    Normalize role input to a safe role value.
+    Defaults to admin to preserve existing behavior for old clients.
+    """
+    if not role:
+        return ROLE_ADMIN
+    normalized = role.strip().lower()
+    if normalized in ALLOWED_ROLES:
+        return normalized
+    return ROLE_VIEWER
+
+
+def authorize_action(role: str, action: str) -> bool:
+    """
+    Basic RBAC matrix:
+    - viewer: read-only
+    - operator: deploy + rollback
+    - admin: deploy + rollback + stop/restart/scale commands
+    """
+    matrix = {
+        ROLE_VIEWER: set(),
+        ROLE_OPERATOR: {"deploy", "rollback"},
+        ROLE_ADMIN: {"deploy", "rollback", "stop", "restart", "scale"},
+    }
+    return action in matrix.get(role, set())

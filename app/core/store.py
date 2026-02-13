@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 import uuid
+from datetime import datetime, timezone
 
 
 @dataclass
@@ -18,6 +19,8 @@ class DeploymentStore:
 
 # Global deployment state
 current_deployment = DeploymentStore()
+activity_feed: list[dict] = []
+MAX_ACTIVITY_ITEMS = 200
 
 
 def reset_store():
@@ -36,3 +39,17 @@ def set_store(store: DeploymentStore):
     """Set deployment store"""
     global current_deployment
     current_deployment = store
+
+
+def add_activity(entry: dict) -> None:
+    """Append a single activity item with UTC timestamp."""
+    stamped = {"at": datetime.now(timezone.utc).isoformat(), **entry}
+    activity_feed.append(stamped)
+    if len(activity_feed) > MAX_ACTIVITY_ITEMS:
+        del activity_feed[:-MAX_ACTIVITY_ITEMS]
+
+
+def get_activity(limit: int = 50) -> list[dict]:
+    """Return newest activity items first."""
+    size = max(1, min(limit, MAX_ACTIVITY_ITEMS))
+    return list(reversed(activity_feed[-size:]))

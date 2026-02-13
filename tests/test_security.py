@@ -1,7 +1,9 @@
 import pytest
 from unittest.mock import patch, MagicMock
 from app.core.security import (
+    authorize_action,
     assess_command_risk,
+    normalize_role,
     runner_available,
     validate_command_execution,
     validate_version_string,
@@ -134,6 +136,8 @@ class TestCommandRiskGuardrails:
             target_nodes=["node1", "node2", "node3"],
             requires_confirmation=True,
             confirmed=False,
+            environment="dev",
+            stop_guard_token="STOP dev",
         )
         with pytest.raises(ValueError):
             validate_command_execution(spec)
@@ -144,5 +148,32 @@ class TestCommandRiskGuardrails:
             target_nodes=["node1", "node2", "node3"],
             requires_confirmation=True,
             confirmed=True,
+            environment="dev",
+            stop_guard_token="STOP dev",
         )
         validate_command_execution(spec)
+
+    def test_validate_blocks_stop_without_safeguard_token(self):
+        spec = CommandSpec(
+            command_type="stop",
+            target_nodes=["node1"],
+            confirmed=True,
+            environment="prod",
+            stop_guard_token="STOP dev",
+        )
+        with pytest.raises(ValueError):
+            validate_command_execution(spec)
+
+
+class TestRbac:
+    def test_normalize_role_defaults_to_admin(self):
+        assert normalize_role(None) == "admin"
+
+    def test_normalize_role_invalid_is_viewer(self):
+        assert normalize_role("superuser") == "viewer"
+
+    def test_authorize_action_matrix(self):
+        assert authorize_action("viewer", "deploy") is False
+        assert authorize_action("operator", "deploy") is True
+        assert authorize_action("operator", "stop") is False
+        assert authorize_action("admin", "stop") is True
